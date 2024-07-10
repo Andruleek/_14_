@@ -51,3 +51,10 @@ sessionmanager = DatabaseSessionManager(SQLALCHEMY_DATABASE_URL)
 async def get_db():
     async with sessionmanager.session() as session:
         yield session
+        
+        
+from src.conf.config import async_engine, async_sessionmaker
+
+async def get_db():
+    async with async_engine.begin() as conn:
+        yield async_sessionmaker(bind=conn)

@@ -5,13 +5,21 @@ from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
 from datetime import datetime  
 from sqlalchemy import text
+from src.database.models import Contact
+from src.repository.contacts import ContactsRepository
 from sqlalchemy.orm import Session
 from src.database.db import get_db
 import cloudinary
+import uvicorn
 from src.conf.config import CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
 from src.routes.contacts import router as contacts_router
 
 app = FastAPI()
+
+contacts_repo = ContactsRepository()
+@app.get("/contacts")
+def get_contacts():
+    contacts = contacts_repo.get_all()
 
 app.include_router(contacts.router, prefix="/api")
 
@@ -62,4 +70,14 @@ async def create_contact():
     # Код для створення контакту
     pass
 
+from src.routes import contacts
 
+if __name__ == "__main__":
+    from uvicorn import run
+    from src.conf.config import async_engine
+
+    run("main:app", reload=True)
+
+    
+    
+    

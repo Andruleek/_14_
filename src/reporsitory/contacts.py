@@ -140,3 +140,111 @@ def update_user_avatar(db: Session, user_id: int, avatar: UploadFile):
     return user
 
 
+import logging
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.schemas import ContactBase, ContactCreate, ContactInDB, ContactUpdate
+from src.database.models import Contact
+from sqlalchemy import select, extract
+from datetime import date, timedelta
+
+class ContactsRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG)
+
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+
+        self.logger.addHandler(console_handler)
+
+    async def create(self, body: ContactBase) -> ContactInDB:
+        try:
+            contact = Contact(**body.dict())
+            self.db.add(contact)
+            await self.db.commit()
+            await self.db.refresh(contact)
+            return ContactInDB.from_orm(contact)
+        except Exception as e:
+            self.logger.error(f"Error while creating contact: {e}")
+            if "ValidationError" in str(e):
+                self.logger.error("Validation error occurred.")
+            raise HTTPException(status_code=500, detail="Internal Server Error")
+
+    async def get_contacts(self, limit: int, offset: int) -> list[ContactInDB]:
+        stmt = select(Contact).offset(offset).limit(limit)
+        contacts = await self.db.execute(stmt)
+        return [ContactInDB.from_orm(c) for c in contacts.scalars().all()]
+
+    async def get_contact(self, contact_id: int) -> ContactInDB | None:
+        stmt = select(Contact).filter_by(id=contact_id)
+        contact = await self.db.execute(stmt)
+        result = contact.scalar_one_or_none()
+        return ContactInDB.from_orm(result) if result else None
+
+    async def update_contact(self, contact_id: int, body: ContactUpdate) -> ContactInDB | None:
+        stmt = select(Contact).filter_by(id=contact_id)
+        result = await self.db.execute(stmt)
+        contact = result.scalar_one_or_none()
+        if contact:
+            contact.first_name = body.first_name
+            contact.last_name = body.last_name
+            contact.email = body.email
+            contact.phone_number = body.phone_number
+            contact.birthday = body.birthday
+            await self.db.commit()
+            await self.db.refresh(contact)
+            return ContactInDB.from_orm(contact)
+        return None
+
+    async def delete_contact(self, contact_id: int) -> ContactInDB | None:
+        stmt = select(Contact).filter_by(id=contact_id)
+        contact = await self.db.execute(stmt)
+        contact = contact.scalar_one_or_none()
+        if contact:
+            await self.db.delete(contact)
+            await self.db.commit()
+            return ContactInDB.from_orm(contact)
+        return None
+
+    async def get_birthdays(self, days: int) -> list[ContactInDB]:
+        days: int = days + 1
+        filter_month = date.today().month
+        filter_day = date.today().day
+
+        stmt = select(Contact).filter(
+            extract('month', Contact.birthday) == filter_month,
+            extract('day', Contact.birthday) <= filter_day + days
+        )
+
+        contacts = await self.db.execute(stmt)
+        return [ContactInDB.from_orm(c) for c in contacts.scalars().all()]
+
+    async def search(self, first_name: str | None, last_name: str | None, email: str | None, skip: int, limit: int) -> list[ContactInDB]:
+        query = select(Contact)
+        if first_name:
+            query = query.filter(Contact.first_name.ilike(f"%{first_name}%"))
+        if last_name:
+            query = query.filter(Contact.last_name.ilike(f"%{last_name}%"))
+        if email:
+            query = query.filter(Contact.email.ilike(f"%{email}%"))
+
+        result_query = query.offset(skip).limit(limit)
+
+        try:
+            contacts = await self.db.execute(result_query)
+            return [ContactInDB.from_orm(c) for c in contacts.scalars().all()]
+        except Exception as e:
+            self.logger.error(f"Error executing database query: {e}")
+            return []
+        
+from src.database.db import get_db
+
+async def get_contacts():
+    async with get_db() as db:
+        # Your database operations here
+        pass
